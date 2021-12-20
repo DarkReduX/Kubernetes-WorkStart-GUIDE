@@ -1,9 +1,9 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: apik
+  name: minikube-simple-app
   labels:
-    app: apik
+    app: minikube-simple-app
 spec:
   selector:
     matchLabels:

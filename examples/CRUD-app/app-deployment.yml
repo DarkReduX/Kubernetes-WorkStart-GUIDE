@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minikube-crud-app
+  labels:
+    app: minikube-crud-app
+spec:
+  selector:
+    matchLabels:
+      app: minikube-crud-app
+  template:
+    metadata:
+      labels:
+        app: minikube-crud-app
+    spec:
+      containers:
+        - name: minikube-crud-app
+          image: "minikube-crud-app:latest"
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                    name: postgres-secret-config
+                    key: password
+            - name: POSTGRES_PORT
+              value: '5432'
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_DBNAME
+              value: postgres
+            - name: POSTGRES_HOST
+              value: postgres-service.default.svc.cluster.local
+          imagePullPolicy: IfNotPresent

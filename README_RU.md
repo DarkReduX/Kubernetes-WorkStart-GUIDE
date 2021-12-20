@@ -81,7 +81,7 @@ minikube start
 kubectl config set-context minikube
 ```
 
-#### Шаг 2. Создание Deployment'a и Service'a в кластере Kubernetes
+#### Шаг 3. Создание Deployment'a и Service'a в кластере Kubernetes
 
 Deployment - Развертывание предоставляет декларативные обновления для модулей и наборов реплик.
 

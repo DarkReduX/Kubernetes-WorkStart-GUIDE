@@ -4,8 +4,8 @@
 
 ## Структура
 
-1. [Концепции Kubernetes](#Концепции_Kubernetes)
-2. Deploy приложения в Kubernetes 
+1. [Концепции Kubernetes](#Концепции-Kubernetes)
+2. [Deploy приложения в Kubernetes](#deploy-приложения-в-kubernetes-с-использованием-minikube)
 
 ## Концепции Kubernetes
 

@@ -181,9 +181,210 @@ minikube service minikube-simple-app
 
 ### Deploy-приложения-состоящего-из-нескольких-узлов
 
-Например у нас имеется приложение с CRUD'ом и для него необходимо задеплоить базу данных
+Перед началом ознакомьтесь с [Stateful Applications Kubernetes](https://kubernetes.io/docs/tutorials/stateful-application/), а также [K8s: Deployments vs StatefulSets vs DaemonSets](https://medium.com/stakater/k8s-deployments-vs-statefulsets-vs-daemonsets-60582f0c62d4)
+
+Например у нас имеется [приложение с CRUD'ом](https://github.com/DarkReduX/Kubernetes-WorkStart-GUIDE/tree/master/examples/CRUD-app)  и вместе с ним задеплоить базу данных, к которой оно будет подключаться
+
+Деплой приложения происходит также как и в прошлой части.
+
+Для начала создадим StatefulSet для PostgreSQL. Т.к нам необходим пароль для подключения создадим Secret:
+
+В secret'ах данные находятся в кодировке base64, чтобы получить кодировку в командной строке выполним:
+
+```shell
+echo postgres-password | base64
+# Output: cG9zdGdyZXMtcGFzc3dvcmQK
+```
+
+postgres-secrets.yml:
+
+```yaml
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret-config
+type: Opaque
+data:
+  password: cG9zdGdyZXMtcGFzc3dvcmQK
+```
+
+Далее необходимо создать StatefulSet Application.  
+
+postgres-deployment.yml:
+
+```yaml
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-database
+spec:
+  selector:
+    matchLabels:
+      app: postgres-database
+  serviceName: postgres-service
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: postgres-database
+    spec:
+      containers:
+        - name: postgres-database
+          image: postgres
+          volumeMounts:
+            - name: postgres-disk
+              mountPath: /var/lib/postgresql/data
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secret-config
+                  key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-disk
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 10Gi
+```
+
+Можно заметить что для настройки переменных среды, а также чтобы получить пароль базы данных из Secret и передать в переменные среды Pod'a используется следующая структура:
+```yaml
+#.................................................
+         env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                 secretKeyRef:
+                    name: postgres-secret-config
+                    key: password
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+#.....................................................
+```
+
+postgres-service.yml:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+spec:
+  selector:
+    app: postgres-database
+  type: NodePort
+  ports:
+    - port: 5432
+      targetPort: 5432
+```
+
+Наше приложение из примера для подключения к базе данных использует данные из переменных среды
+```go
+// =============config=============
+package config
+
+import (
+"github.com/caarlos0/env"
+log "github.com/sirupsen/logrus"
+)
+
+type PostgresConfig struct {
+   Host     string `env:"POSTGRES_HOST,required"`
+   PORT     string `env:"POSTGRES_PORT,required"`
+   Password string `env:"POSTGRES_PASSWORD,required"`
+   User     string `env:"POSTGRES_USER,required"`
+   DbName   string `env:"POSTGRES_DBNAME,required"`
+}
+
+func NewPostgresConfig() *PostgresConfig {
+   cfg := &PostgresConfig{}
+   if err := env.Parse(cfg); err != nil {
+      log.Fatalf("Couldn't parse postgres config: %v", err)
+      return nil
+   }
+
+   return cfg
+}
+
+//==========main===========
+
+package main
+
+func main() {
+    postgresConfig := config.NewPostgresConfig()
+    //....
+}
+```
+
+В данном случае yaml-файл будет похож на тот что использовался при деплое прошлого приложения, но будут пробрасываться переменные среды.
+
+app-deploy.yml:
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minikube-crud-app
+  labels:
+    app: minikube-crud-app
+spec:
+  selector:
+    matchLabels:
+      app: minikube-crud-app
+  template:
+    metadata:
+      labels:
+        app: minikube-crud-app
+    spec:
+      containers:
+        - name: minikube-crud-app
+          image: "minikube-crud-app:latest"
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                    name: postgres-secret-config
+                    key: password
+            - name: POSTGRES_PORT
+              value: '5432'
+            - name: POSTGRES_USER
+              value: postgres
+            - name: POSTGRES_DBNAME
+              value: postgres
+              # для получения адреса сервиса
+              # внутри кластера используется структура
+              # <service-name>.<namespace>.svc.cluster.local
+            - name: POSTGRES_HOST
+              value: postgres-service.default.svc.cluster.local
+          imagePullPolicy: IfNotPresent
+```
 
 
+app-service.yml:
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: minikube-crud-app
+  labels:
+    app: minikube-crud-app
+spec:
+  type: NodePort
+  ports:
+    - port: 8080
+      protocol: TCP
+      targetPort: 8080
+      # nodePort можно не указывать, тогда он будет сгенерирован кластером
+      nodePort: 30081
+  selector:
+    app: minikube-crud-app
+
+```
 
 ## Дополнительные Ресурсы:
 

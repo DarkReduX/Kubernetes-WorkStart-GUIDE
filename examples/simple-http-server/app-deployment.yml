@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: apik
+  labels:
+    app: apik
+spec:
+  selector:
+    matchLabels:
+      app: minikube-simple-app
+  template:
+    metadata:
+      labels:
+        app: minikube-simple-app
+    spec:
+      containers:
+        - name: minikube-simple-app
+          image: "minikube-simple-app:latest"
+# SOME ENVIRONMENT VARIABLES FOR PODS HERE:
+#          env:
+#            - name: POSTGRES_PASSWORD
+#              value: 'a!11111111'
+#            - name: POSTGRES_USER
+#              value: postgres
+#            - name: POSTGRES_DB
+#              value: mind-map
+#            - name: USER_SERVICE_PORT
+#              value: '7070'
+#            - name: USER_SERVICE_HOST
+#              value: user-service.default.svc.cluster.local
+#            - name: MAP_SERVICE_PORT
+#              value: '1480'
+#            - name: MAP_SERVICE_HOST
+#              value: mind-map-service.default.svc.cluster.local
+          imagePullPolicy: IfNotPresent

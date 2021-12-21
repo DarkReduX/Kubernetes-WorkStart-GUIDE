@@ -6,13 +6,14 @@
 
 1. [Концепции Kubernetes](#Концепции-Kubernetes)
 2. [Deploy приложения в Kubernetes](#deploy-приложения-в-kubernetes-с-использованием-minikube)
-    1. [Deploy простого приложения](#Развертывание-простого-приложения)
-    2. [Deploy приложения состоящего из нескольких узлов](#Deploy-приложения-состоящего-из-нескольких-узлов)
+   - [Deploy простого приложения](#Развертывание-простого-приложения)
+   - [Deploy приложения с БД PostgreSQL](#Deploy-приложения-с-БД-PostgreSQL)
+   - [Deploy микросервисного приложения](#Deploy-микросервисного-приложения)
 
 
 ## Концепции Kubernetes
 
-Nodes: Нода это машина в кластере Kubernetes. 
+Nodes: Нода это машина в кластере Kubernetes.
 
 Pods: Pod это группа контейнеров с общими разделами, запускаемых как единое целое.
 
@@ -52,7 +53,7 @@ func main() {
 
 #### Шаг 1: создать docker image приложения
 
-Необходимо описать инструкцию сборки образа docker. Для приложения выше использует Dockerfile: 
+Необходимо описать инструкцию сборки образа docker. Для приложения выше использует Dockerfile:
 
 ```dockerfile
 FROM golang:1.17.4-alpine
@@ -117,7 +118,7 @@ spec:
 
 Раздел template - представляет инструкцию(конфигурацию) для создания pod'ов и replica-sets по определенному в yaml шаблону
 
-Соответственно метки в разделе selector должны соответствовать меткам описаным в разделе template. 
+Соответственно метки в разделе selector должны соответствовать меткам описаным в разделе template.
 
 app-service.yml:
 ```yaml
@@ -143,7 +144,7 @@ spec:
 kubectl apply -f . 
 ```
 
-Или 
+Или
 
 ```shell
 kubectl apply -f ./app-deployment.yml
@@ -153,7 +154,10 @@ kubectl apply -f ./app-service.yml
 Посмотреть состояние сервисов, деплоев и подов можно используя
 
 ```shell
+# информация о всех ресурсах в кластере
 kubectl get all
+# или выборка информации о ресурсах
+kubectl get pod,deployment,service,rs 
 ```
 
 Также можно использовать UI Kubernetes
@@ -179,7 +183,7 @@ minikube service minikube-simple-app
 
 ![img_1.png](img_1.png)
 
-### Deploy-приложения-состоящего-из-нескольких-узлов
+### Deploy приложения с БД PostgreSQL
 
 Перед началом ознакомьтесь с [Stateful Applications Kubernetes](https://kubernetes.io/docs/tutorials/stateful-application/), а также [K8s: Deployments vs StatefulSets vs DaemonSets](https://medium.com/stakater/k8s-deployments-vs-statefulsets-vs-daemonsets-60582f0c62d4)
 
@@ -208,7 +212,7 @@ data:
   password: cG9zdGdyZXMtcGFzc3dvcmQK
 ```
 
-Далее необходимо создать StatefulSet Application.  
+Далее необходимо создать StatefulSet Application.
 
 postgres-deployment.yml:
 
@@ -383,8 +387,133 @@ spec:
       nodePort: 30081
   selector:
     app: minikube-crud-app
-
 ```
+
+## Deploy микросервисного приложения
+
+Допустим у нас имеется [API](https://github.com/DarkReduX/Kubernetes-WorkStart-GUIDE/tree/master/examples/microservice-app/api), который принимает GET запрос http://host:port?name=andrey с параметром `name = andrey`, отправляет запрос на сервис который преобразует все символы в верхний регистр и возвращает пользователю.
+
+Соответственно необходимо пробросить внешний порт для API, а name-service будет работать во внутренней сети кластера. Сервисы в Kubernetes бывают 4-х типов c которыми можно ознакомиться здесь: https://kubernetes.io/docs/concepts/services-networking/service/#publishing-services-service-types
+
+Также необходимо создать Docker Image для API и Name-Service
+
+### Name-Service deploy
+
+Следующие команды выполняются из корня проекта  Name-Service:
+
+```shell
+eval $(minikube docker-env)
+docker build . -t microservice-app-name-service
+```
+
+app-deployment.yml :
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+   name: microservice-app-name-service
+   labels:
+      app: microservice-app-name-service
+spec:
+   selector:
+      matchLabels:
+         app: microservice-app-name-service
+   template:
+      metadata:
+         labels:
+            app: microservice-app-name-service
+      spec:
+         containers:
+            - name: microservice-app-name-service
+              image: "microservice-app-name-service:latest"
+              env:
+                 # Т.к необходимо чтобы сервис слушал входящие запросы с API
+                 # задаем адрес API используя конструкцию <service-name>.<namespace>.svc.cluster.local
+                 - name: NAME_LISTEN_HOST
+                   value: 'microservice-app-api.default.svc.cluster.local'
+                 - name: NAME_PORT
+                   value: '7070'
+              imagePullPolicy: IfNotPresent
+```
+
+app-service.yml :
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+   name: microservice-app-name-service
+   labels:
+      app: microservice-app-name-service
+spec:
+   type: ClusterIP
+   ports:
+      - port: 7070
+        protocol: TCP
+   selector:
+      app: microservice-app-name-service
+```
+
+
+### API deploy
+
+
+Следующие команды выполняются из корня проекта  api:
+
+```shell
+# если до этого исполняли 'eval $(minikube docker-env)', повторно использовать нет необходимости
+eval $(minikube docker-env) 
+
+docker build . -t microservice-app-api
+```
+
+app-deployment.yml :
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+   name: microservice-app-api
+   labels:
+      app: microservice-app-api
+spec:
+   selector:
+      matchLabels:
+         app: microservice-app-api
+   template:
+      metadata:
+         labels:
+            app: microservice-app-api
+      spec:
+         containers:
+            - name: microservice-app-api
+              image: "microservice-app-api:latest"
+              env:
+                 - name: NAME_HOST
+                   value: 'microservice-app-name-service.default.svc.cluster.local'
+                 - name: NAME_PORT
+                   value: '7070'
+              imagePullPolicy: IfNotPresent
+```
+
+app-service.yml :
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+   name: microservice-app-api
+   labels:
+      app: microservice-app-api
+spec:
+   # тип NodePort используется чтобы открыть доступ к сервису из вне кластера
+   type: NodePort
+   ports:
+      - port: 8080
+        protocol: TCP
+        targetPort: 8080
+   selector:
+      app: microservice-app-api
+```
+
+
 
 ## Дополнительные Ресурсы:
 

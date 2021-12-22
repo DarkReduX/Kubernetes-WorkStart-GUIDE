@@ -9,7 +9,7 @@
    - [Deploy простого приложения](#Развертывание-простого-приложения)
    - [Deploy приложения с БД PostgreSQL](#Deploy-приложения-с-БД-PostgreSQL)
    - [Deploy микросервисного приложения](#Deploy-микросервисного-приложения)
-
+3. [Deploy приложения на AWS EKS](#Deploy-приложения-на-AWS-EKS)
 
 ## Концепции Kubernetes
 
@@ -513,9 +513,127 @@ spec:
       app: microservice-app-api
 ```
 
+## Deploy приложения на AWS EKS
+
+### Создание кластера на AWS EKS
+Перед началом работы необходим утсановленный и сконфигурированный [AWS CLI](https://aws.amazon.com/ru/cli/), а также установить [eksctl command line utility](https://docs.aws.amazon.com/eks/latest/userguide/eksctl.html)
+
+Для начала необходимо создать кластер в EKS:
+
+```shell
+eksctl --name test-learn-eks --region eu-north-1
+```
+eksctl создаст самостоятельно kubectl config файл в ~/.kube или добавит конфигурацию нового кластера в существующий конфиг на вашем компьютере
+
+Чтобы посмотреть существующие Node'ы используйте
+
+```shell
+kubectl get nodes -o wide
+#Output
+# NAME                                            STATUS   ROLES    AGE     VERSION               INTERNAL-IP      EXTERNAL-IP     OS-IMAGE         KERNEL-VERSION                CONTAINER-RUNTIME
+# ip-<IP>.eu-north-1.compute.internal             Ready    <none>   8m35s   v1.21.5-eks-bc4871b   IP               IP              Amazon Linux 2   5.4.156-83.273.amzn2.x86_64   docker://20.10.7
+# ip-<IP>.eu-north-1.compute.internal             Ready    <none>   9m6s    v1.21.5-eks-bc4871b   IP               IP              Amazon Linux 2   5.4.156-83.273.amzn2.x86_64   docker://20.10.7
+```
+
+Чтобы посмотреть Pod'ы, которые запущены на вашем Cluster'e используйте:
+```shell
+kubectl get pods --all-namespaces -o wide
+# Output
+# NAMESPACE     NAME                       READY   STATUS    RESTARTS   AGE   IP               NODE                                            NOMINATED NODE   READINESS GATES
+# kube-system   aws-node-wfqw4             1/1     Running   0          11m   <IP>             ip-<IP>.eu-north-1.compute.internal             <none>           <none>
+# kube-system   aws-node-x9hbf             1/1     Running   0          10m   <IP>             ip-<IP>.eu-north-1.compute.internal             <none>           <none>
+# kube-system   coredns-5bf7669654-89tcx   1/1     Running   0          19m   <IP>             ip-<IP>.eu-north-1.compute.internal             <none>           <none>
+# kube-system   coredns-5bf7669654-kbcxt   1/1     Running   0          19m   <IP>             ip-<IP>.eu-north-1.compute.internal             <none>           <none>
+# kube-system   kube-proxy-fqwfk           1/1     Running   0          10m   <IP>             ip-<IP>.eu-north-1.compute.internal             <none>           <none>
+# kube-system   kube-proxy-kkrks           1/1     Running   0          11m   <IP>             ip-<IP>.eu-north-1.compute.internal             <none>           <none>
+```
+
+### Deploy микросервисного приложения на AWS EKS
+
+Развертывать будем [приложение из последнего примера](./examples/microservice-app):
+
+Чтобы EKS мог использовать наши docker images их необходимо запушить либо в AWS ECR ([guide](https://docs.aws.amazon.com/eks/latest/userguide/private-clusters.html#container-images)), либо на DockerHub, в данном примере будет использоваться DockerHub.
+
+Предварительно необходимо авторизоваться в DockerHub
+
+```shell
+docker login
+```
+
+Также перед тем как опубликовать наши Docker Images необходимо изменить им имя:
+```shell
+docker tag microservice-app-name-service:latest <DOCKER_ID>/microservice-app-name-service:latest
+docker tag microservice-app-api:latest <DOCKER_ID>/microservice-app-api:latest
+```
+
+Для того чтобы залить их на DockerHub необходимо создать репозитории с именнем image'ей без DOCKER_ID (пример: microservice-app-api) выполнить:
+```shell
+docker push <DOCKER_ID>/microservice-app-name-service:latest
+docker push <DOCKER_ID>/microservice-app-api:latest
+```
+
+После чего в app-deployment.yml обоих проектов необходимо изменить:
+```yaml
+#=== Not changed ====
+    spec:
+      containers:
+        - name: microservice-app-api
+          image: "microservice-app-api:latest"
+#=== Changed ===
+    spec:
+       containers:
+          - name: microservice-app-api
+            image: "<DOCKER_ID>/microservice-app-api:latest"
+```
+
+И для развертывания приложений используем рекурсивный обход (-R):
+```shell
+cd ./Kubernetes-WorkStart-GUIDE/examples/microservice-app
+
+kubectl apply -R -f .
+```
+
+При этом мы не сможем получить доступ к сервису API с типом NodePort
+```shell
+kubectl get service -o wide
+```
+![img_4.png](img_4.png)
+
+Так как порт пробрасывается на WorkerNodes, к которым с SercurityGroup rules по умолчанию у нас не будет доступа
+
+```shell
+kubectl get nodes -o wide
+```
+
+![img_5.png](img_5.png)
+
+При попытке обратиться к нашему API по адресам, не будет подключения:
+- 16.170.166.52:31451
+- 13.49.243.52:31451
+
+Для этого перейдем в Консоль Управления AWS и далее перейдем в Security Groups
+![img_6.png](img_6.png)
+
+Выберем группу кластера
+
+![img_7.png](img_7.png)
+
+И добавим такое правило:
+
+![img_8.png](img_8.png)
+
+После чего при запросах:
+- 16.170.166.52:31451?name=aws_eks_deployment
+- 13.49.243.52:31451?name=aws_eks_deployment
+
+Получим такое сообщение:
+
+AWS_EKS_DEPLOYMENT
 
 
 ## Дополнительные Ресурсы:
 
 - [Kubernetes Concepts](https://kubernetes.io/docs/concepts/)
 - [Kubernetes Docs](https://kubernetes.io/docs/home/)
+- [Amazon EKS](https://docs.aws.amazon.com/eks/latest/userguide/getting-started-eksctl.html)
+- https://faun.pub/learning-kubernetes-by-doing-part-3-services-ed5bf7e2bc8e

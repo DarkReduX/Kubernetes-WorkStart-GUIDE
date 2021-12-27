@@ -111,7 +111,7 @@ spec:
       containers:
         - name: minikube-simple-app
           image: "minikube-simple-app:latest"
-         imagePullPolicy: IfNotPresent
+          imagePullPolicy: IfNotPresent
 ```
 
 Раздел selector - представляет инструкцию(конфигурацию) для абстракции уровня Deployment для поиска pod'ов b replica-sets которыми он управляет и в случает их отказа восстанавливает

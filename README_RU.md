@@ -10,7 +10,10 @@
    - [Deploy приложения с БД PostgreSQL](#Deploy-приложения-с-БД-PostgreSQL)
    - [Deploy микросервисного приложения](#Deploy-микросервисного-приложения)
 3. [Deploy приложения на AWS EKS](#Deploy-приложения-на-AWS-EKS)
-
+4. [Deploy приложения на Google Kubernetes Cloud](#Deploy-приложения-на-Google-Kubernetes-Cloud)
+5. [GitOps](#GitOps)
+   - [GitOps с AWS EKS](#GitOps-с-AWS-EKS)
+   - [GitOps с GKE](#GitOps-с-GKE)
 ## Концепции Kubernetes
 
 Nodes: Нода это машина в кластере Kubernetes.
@@ -636,6 +639,280 @@ kubectl get nodes -o wide
 
 AWS_EKS_DEPLOYMENT
 
+## GitOps
+
+### GitOps с AWS EKS
+
+#### Создание ECR container registry и установка GitOps Actions Workflow
+
+Здесь будет описано как добавить GitOps deployment с использованием Flux и Github Acitons. В данном примере исользуется [просто приложение](./examples/simple-http-server) из первого примера.
+
+В таблице перечислены все необходимые инструменты.
+
+
+|         Component         	| Implementation                        	                                                 | Notes                                                                                                                               	|
+|:-------------------------:	|-----------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------	|
+| EKS                       	| [EKSctl](https://eksctl.io/)                                	                           | Managed Kubernetes service.                                                                                                         	|
+| Git repo                  	| https://github.com/DarkReduX/ci-cd-eks 	                                                                                      | A Git repository containing your application and cluster manifests files.                                                           	|
+| Continuous Integration    	| [GitHub Actions](https://github.com/features/actions)                        	          | Test and integrate the code - can be anything from CircleCI to GitHub actions.                                                      	|
+| Continuous Delivery       	| [Flux version 2](https://toolkit.fluxcd.io/cmd/flux/)                                  	 | Cluster <-> repo synchronization                                                                                                    	|
+| Container Registry        	| [AWS ECR Container Registry](https://aws.amazon.com/ecr/)            	                  | Can be any image registry or even a directory.                                                                                      	|
+| GitHub secrets management 	| ECR                                   	                                                 | Can use [Sealed Secrets](https://github.com/bitnami-labs/sealed-secrets) or [Vault](https://www.vaultproject.io/).In this case we are using Elastic Container Registry (ECR) which provides resource level  security. 	|
+
+Создание Cluster'a:
+```shell
+ eksctl create cluster --name test --node-type=t3.small --nodes-max=1 --nodes-min=1
+```
+В этом разделе вы настроите реестр ECR и мини-конвейер CI с помощью действий GitHub. Действия создают новый контейнер на "git push", помечают его git-sha, а затем помещают его в реестр ECR. Он также обновляет и фиксирует изменение тега изображения в вашем файле kustomize. Как только новое изображение оказывается в хранилище, Flux замечает новое изображение и затем развертывает его в кластере. Весь этот поток станет более очевидным в следующем разделе после того, как вы настроите поток.
+
+
+Также необходимо создать [ECR](https://aws.amazon.com/ru/ecr/) repository, в том же регионе, в котором был запущен кластер, В данном примере используется репозиторий с именем "test".
+
+
+Установить в репозитории GitHub Secrets: 
+```yaml
+AWS_ACCOUNT_ID
+
+AWS_ACCESS_KEY_ID
+
+AWS_SECRET_ACCESS_KEY
+```
+
+Также проверьте в репозитории .github/workflows/main.yml. Убедитесь, что переменные среды в строках 16-20 main.yml настроены правильно.
+```yaml
+16 AWS_DEFAULT_REGION: eu-west-1
+
+17 AWS_DEFAULT_OUTPUT: json
+
+18 AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+
+19 AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+
+20 AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+```
+
+AWS_DEFAULT_REGION - регион в котором расположен ваш кластер.
+
+#### Установка Flux
+
+Для установки посмотрите: [Installing the Flux CLI](https://fluxcd.io/docs/get-started/#install-the-flux-cli).
+
+После установки убедитесь, что ваш кластер EKS удовлетворяет необходимым требованиям:
+```shell
+flux check --pre
+```
+
+Если всё прошло успешно вывод будет похож на этот:
+
+```shell
+► checking prerequisites
+
+✔ kubectl 1.19.3 >=1.18.0
+
+✔ Kubernetes 1.17.9-eks-a84824 >=1.16.0
+
+✔ prerequisites checks passed
+```
+
+Flux поддерживает синхронизацию манифестов в одном каталоге, но когда у вас много YAML, более эффективно использовать Kustomize для управления ими. В примере все манифесты были скопированы в каталог развертывания и добавлен файл Kustomize. В этом примере файл kustomize содержит директиву `Newtag`  image'a манифеста развертывания:
+
+```yaml
+images:
+
+- name: ci-cd-eks
+  newName: test
+  newTag: new
+```
+
+#### Установка flux и других controller'ов в  cluster
+
+Экспортируйте в переменные среды Github Personal Access Token и имя пользователя
+
+```shell
+export GITHUB_TOKEN=[your-github-token]
+
+export GITHUB_USER=[your-github-username]
+```
+
+#### Создание Flux Reconciliation Repository
+
+На этом этапе создается частное хранилище, и все контроллеры также будут установлены в вашем кластере EKS. При начальной загрузке репозитория с помощью Flux также можно применить только подкаталог в репозитории и, следовательно, подключиться к нескольким кластерам или местоположениям, к которым можно применить конфигурацию. Чтобы упростить задачу, в этом примере в качестве пути применения задается имя одного кластера:
+
+```shell
+flux bootstrap github \
+
+  --owner=$GITHUB_USER \
+
+  --repository=fleet-infra \
+
+  --branch=main \
+
+  --path=[cluster-name] \
+
+  --personal
+```
+
+Flux версии 2 позволяет легко работать с несколькими кластерами и несколькими репозиториями. Новые конфигурации кластера и приложения можно применять из одного и того же репозитория, указав новый путь для каждого.
+
+Как только он завершит загрузку, вы увидите следующее:
+
+```shell
+► connecting to github.com
+
+✔ repository cloned
+
+✚ generating manifests
+
+✔ components manifests pushed
+
+► installing components in flux-system namespace …..
+
+deployment "source-controller" successfully rolled out
+
+deployment "kustomize-controller" successfully rolled out
+
+deployment "helm-controller" successfully rolled out
+
+deployment "notification-controller" successfully rolled out
+```
+
+Проверьте кластер имеется ли namespace flux-system:
+
+```shell
+kubectl get namespaces
+
+NAME              STATUS   AGE
+
+default           Active   5h25m
+
+flux-system       Active   5h13m
+
+kube-node-lease   Active   5h25m
+
+kube-public       Active   5h25m
+
+kube-system       Active   5h25m
+```
+
+Загрузите и переместитесь в созданный приватный репозиторий fleet-infra
+
+```shell
+git clone https://github.com/$GITHUB_USER/fleet-infra
+cd fleet-infra
+```
+
+Подключение ci-cd-eks репозитория к fleet-infra:
+
+```shell
+flux create source git [ci-cd-eks] \
+
+  --url=https://github.com/[github-user-id/ci-cd-eks] \
+
+  --branch=master \
+
+  --interval=30s \
+
+  --export > ./[cluster-name]/[ci-cd-eks]-source.yaml
+```
+
+Где
+- [ci-cd-eks] is the name of your app or service
+
+- [cluster-name] is the cluster name
+
+- [github-user-id/ci-cd-eks] is the forked ci-cd-eks repository
+
+Также необходимо настроить Flux Kustomization для того чтобы принимать изменения из ./deploy
+```shell
+flux create kustomization ci-cd-eks \
+
+ --source=ci-cd-eks \
+
+ --path="./deploy" \
+
+ --prune=true \
+
+ --interval=1h \
+
+ --export > ./[cluster-name]/ci-cd-eks-sync.yaml
+```
+
+Закоммитьте и запушьте изменения в репозиторий
+
+```shell
+git add -A && git commit -m "add ci-cd-eks deploy" && git push
+
+watch flux get kustomizations
+```
+
+Теперь вы должны увидеть последние версии компонентов flux toolkit, а также исходный код ci-cd-eks, извлеченный и развернутый в вашем кластере:
+
+```shell
+NAME            READY   MESSAGE                                                                 REVISION                                        SUSPENDED
+ci-cd-eks       True    Applied revision: master/ecfa7e3b8dd30b19f9213e7930949329b128e344       master/ecfa7e3b8dd30b19f9213e7930949329b128e344 False
+flux-system     True    Applied revision: main/9b6d555187f7cc090ff315475798b7f76c099aa0         main/9b6d555187f7cc090ff315475798b7f76c099aa0   False
+```
+
+Проверим запущен ли контейнер в кластере ci-cd-eks
+```shell
+kubectl get pods 
+
+NAME                                         STATUS   ROLES    AGE   VERSION               INTERNAL-IP    EXTERNAL-IP     OS-IMAGE         KERNEL-VERSION                CONTAINER-RUNTIME
+ip-192-168-45-2.us-west-2.compute.internal   Ready    <none>   23m   v1.21.5-eks-bc4871b   192.168.45.2   34.213.137.53   Amazon Linux 2   5.4.156-83.273.amzn2.x86_64   docker://20.10.7
+```
+
+Теперь давайте проверим deploy через `git push`
+
+Добавим лог в main.go:
+
+```go
+package main
+
+import (
+   "fmt"
+   "github.com/labstack/echo"
+   "github.com/sirupsen/logrus"
+   "net/http"
+)
+
+func main() {
+   // ====== Здесь добавили лог =====
+   logrus.Info("run app")
+   // ===============================
+   e := echo.New()
+   e.GET("/", func(c echo.Context) error {
+      return c.String(http.StatusOK, fmt.Sprintf("Hello, %s", c.QueryParam("name")))
+   })
+
+   e.Logger.Fatal(e.Start(":8080"))
+}
+```
+
+И проверим логи в pod'e:
+
+```shell
+kubect get pods
+# Output
+# NAME                                  READY   STATUS    RESTARTS   AGE
+# minikube-simple-app-955978c7c-dqr6c   1/1     Running   0          13s
+
+kubect logs minikube-simple-app-955978c7c-dqr6c
+```
+
+И получим такое сообщение:
+
+```shell
+   ____    __
+  / __/___/ /  ___
+ / _// __/ _ \/ _ \
+/___/\__/_//_/\___/ v3.3.10-dev
+High performance, minimalist Go web framework
+https://echo.labstack.com
+____________________________________O/_______
+                                    O\
+⇨ http server started on [::]:8080
+time="2021-12-27T15:25:24Z" level=info msg="run app"
+```
 
 ## Дополнительные Ресурсы:
 

@@ -166,7 +166,7 @@ kubectl get pod,deployment,service,rs
 minikube dashboard
 ```
 
-![img.png](img.png)
+![img.png](images/img.png)
 
 Чтобы получить адрес сервиса используйте:
 ```shell
@@ -181,7 +181,7 @@ minikube service minikube-simple-app
 
 По итогу получим ответ с сервера:
 
-![img_1.png](img_1.png)
+![img_1.png](images/img_1.png)
 
 ### Deploy приложения с БД PostgreSQL
 
@@ -597,7 +597,7 @@ kubectl apply -R -f .
 ```shell
 kubectl get service -o wide
 ```
-![img_4.png](img_4.png)
+![img_4.png](images/img_4.png)
 
 Так как порт пробрасывается на WorkerNodes, к которым с SercurityGroup rules по умолчанию у нас не будет доступа
 
@@ -605,22 +605,22 @@ kubectl get service -o wide
 kubectl get nodes -o wide
 ```
 
-![img_5.png](img_5.png)
+![img_5.png](images/img_5.png)
 
 При попытке обратиться к нашему API по адресам, не будет подключения:
 - 16.170.166.52:31451
 - 13.49.243.52:31451
 
 Для этого перейдем в Консоль Управления AWS и далее перейдем в Security Groups
-![img_6.png](img_6.png)
+![img_6.png](images/img_6.png)
 
 Выберем группу кластера
 
-![img_7.png](img_7.png)
+![img_7.png](images/img_7.png)
 
 И добавим такое правило:
 
-![img_8.png](img_8.png)
+![img_8.png](images/img_8.png)
 
 После чего при запросах:
 - 16.170.166.52:31451?name=aws_eks_deployment

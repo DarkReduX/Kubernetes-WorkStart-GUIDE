@@ -85,6 +85,12 @@ minikube start
 kubectl config set-context minikube
 ```
 
+Также перед запуском каких-либо команд Docker нужно задать окружение. Аналогично запуску eval $(docker-machine env), мы создаем переменные окружения Docker для Minikube с помощью команды minikube docker-env:
+
+```shell
+eval $(minikube docker-env)
+```
+
 #### Шаг 3. Создание Deployment'a и Service'a в кластере Kubernetes
 
 Deployment - Развертывание предоставляет декларативные обновления для модулей и наборов реплик.

@@ -122,3 +122,5 @@ Engine составляет контейнеры в кластеры и упра
 ![](src/images/result_project.png)
 
 Как видим мы получили response от сервиса который заменил все символы нижнего регистра на символы верхнего.
+
+Кликай [сюда](https://github.com/INEFFABLE-games/gke-deployment-GitOps/blob/master/README_RU.md) если хочешь узнать как подгружать образы напрямую из github!

@@ -530,7 +530,7 @@ spec:
 Для начала необходимо создать кластер в EKS:
 
 ```shell
-eksctl --name test-learn-eks --region eu-north-1
+eksctl create cluster --name test-learn-eks --node-type=t3.small --nodes-max=1 --nodes-min=1
 ```
 eksctl создаст самостоятельно kubectl config файл в ~/.kube или добавит конфигурацию нового кластера в существующий конфиг на вашем компьютере
 
